@@ -3,6 +3,12 @@
 
 (def view (atom nil))
 
+;; === Util ===
+
+(defn runnable [fn]
+  (reify java.lang.Runnable
+    (run [_] (fn))))
+
 ;; === Mutate image viewer ===
 
 (defn load-image [path]
@@ -32,8 +38,7 @@
 
 (def default-bindings
   {(combination javafx.scene.input.KeyCode/RIGHT [])
-   (reify java.lang.Runnable
-     (run [_] (goto-next-image!)))})
+   (runnable #(goto-next-image!))})
 
 (defn apply-bindings! [binding-map]
   (.putAll (.getAccelerators (::scene @view)) binding-map))
@@ -41,39 +46,37 @@
 ;; === Main ===
 
 (def entry-point
-  (reify java.lang.Runnable
-    (run [_]
-      (let [image-view
-            (new javafx.scene.image.ImageView)
-            vbox
-            (new javafx.scene.layout.VBox (into-array javafx.scene.Node [image-view]))
-            scene
-            (new javafx.scene.Scene vbox)
-            stage
-            (new javafx.stage.Stage)]
-        (reset! view {::image-view image-view
-                      ::vbox vbox
-                      ::scene scene
-                      ::stage stage})
+  (runnable
+   #(let [image-view
+          (new javafx.scene.image.ImageView)
+          vbox
+          (new javafx.scene.layout.VBox (into-array javafx.scene.Node [image-view]))
+          scene
+          (new javafx.scene.Scene vbox)
+          stage
+          (new javafx.stage.Stage)]
+      (reset! view {::image-view image-view
+                    ::vbox vbox
+                    ::scene scene
+                    ::stage stage})
 
-        ;; Set up image view
-        (.setPreserveRatio image-view true)
-        ;; Make fitWidth of image-view be the width of the window
-        (.bind (.fitWidthProperty image-view) (.widthProperty scene))
+      ;; Set up image view
+      (.setPreserveRatio image-view true)
+      ;; Make fitWidth of image-view be the width of the window
+      (.bind (.fitWidthProperty image-view) (.widthProperty scene))
 
+      ;; Set up stage (image-view is already in scene)
+      (.setScene stage scene)
+      (.show stage)
 
-        ;; Set up stage (image-view is already in scene)
-        (.setScene stage scene)
-        (.show stage)
+      ;; Initial keybinds
+      (apply-bindings! default-bindings)
 
-        ;; Initial keybinds
-        (apply-bindings! default-bindings)
+      ;; Initial images
+      (reset! images-position (images-coll/from-seq (lines-from-stdin)))
 
-        ;; Initial images
-        (reset! images-position (images-coll/from-seq (lines-from-stdin)))
-
-        ;; Initial image
-        (goto! (images-coll/current @images-position))))))
+      ;; Initial image
+      (goto! (images-coll/current @images-position)))))
 
 (defn -main [& args]
   (javafx.application.Platform/startup entry-point))

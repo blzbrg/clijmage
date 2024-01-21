@@ -25,8 +25,11 @@
 
 (def images-position (atom nil))
 
-(defn goto-next-image! []
-  (let [new-coll (swap! images-position images-coll/move-forward)]
+(defn move! [instruction]
+  (let [coll-fn (case instruction
+                  :left images-coll/move-backward
+                  :right images-coll/move-forward)
+        new-coll (swap! images-position coll-fn)]
     (goto! (images-coll/current new-coll))))
 
 ;; === Keys ===
@@ -38,7 +41,9 @@
 
 (def default-bindings
   {(combination javafx.scene.input.KeyCode/RIGHT [])
-   (runnable #(goto-next-image!))})
+   (runnable #(move! :right))
+   (combination javafx.scene.input.KeyCode/LEFT [])
+   (runnable #(move! :left))})
 
 (defn apply-bindings! [binding-map]
   (.putAll (.getAccelerators (::scene @view)) binding-map))

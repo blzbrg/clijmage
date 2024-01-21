@@ -1,0 +1,79 @@
+(ns clijmage.main
+  (:require [clijmage.images-coll :as images-coll]))
+
+(def view (atom nil))
+
+;; === Mutate image viewer ===
+
+(defn load-image [path]
+  (new javafx.scene.image.Image (str "file:" path)))
+
+(defn goto! [path]
+  (.setImage (::image-view @view) (load-image path)))
+
+;; === Images from stdin ===
+
+(defn lines-from-stdin []
+  ;; TODO: Is  a read-line loop more efficient? Does anyone care?
+  (clojure.string/split-lines (slurp *in*)))
+
+(def images-position (atom nil))
+
+(defn goto-next-image! []
+  (let [new-coll (swap! images-position images-coll/move-forward)]
+    (goto! (images-coll/current new-coll))))
+
+;; === Keys ===
+
+(defn combination [key mods]
+  (new javafx.scene.input.KeyCodeCombination
+       key
+       (into-array javafx.scene.input.KeyCombination$Modifier mods)))
+
+(def default-bindings
+  {(combination javafx.scene.input.KeyCode/RIGHT [])
+   (reify java.lang.Runnable
+     (run [_] (goto-next-image!)))})
+
+(defn apply-bindings! [binding-map]
+  (.putAll (.getAccelerators (::scene @view)) binding-map))
+
+;; === Main ===
+
+(def entry-point
+  (reify java.lang.Runnable
+    (run [_]
+      (let [image-view
+            (new javafx.scene.image.ImageView)
+            vbox
+            (new javafx.scene.layout.VBox (into-array javafx.scene.Node [image-view]))
+            scene
+            (new javafx.scene.Scene vbox)
+            stage
+            (new javafx.stage.Stage)]
+        (reset! view {::image-view image-view
+                      ::vbox vbox
+                      ::scene scene
+                      ::stage stage})
+
+        ;; Set up image view
+        (.setPreserveRatio image-view true)
+        ;; Make fitWidth of image-view be the width of the window
+        (.bind (.fitWidthProperty image-view) (.widthProperty scene))
+
+
+        ;; Set up stage (image-view is already in scene)
+        (.setScene stage scene)
+        (.show stage)
+
+        ;; Initial keybinds
+        (apply-bindings! default-bindings)
+
+        ;; Initial images
+        (reset! images-position (images-coll/from-seq (lines-from-stdin)))
+
+        ;; Initial image
+        (goto! (images-coll/current @images-position))))))
+
+(defn -main [& args]
+  (javafx.application.Platform/startup entry-point))

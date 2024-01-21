@@ -1,0 +1,7 @@
+{:paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.11.1"}
+        org.openjfx/javafx-graphics {:mvn/version "21"}}
+ :aliases {:test {:extra-deps {org.clojure/tools.namespace {:mvn/version "1.4.5"}}
+                  :paths ["src" "test"] ; src is on the classpath so that we can require the
+                                        ; namespaces to test them
+                  :exec-fn clijmage.test_entry_point/test-main}}}

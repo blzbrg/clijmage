@@ -1,21 +1,7 @@
 (ns clijmage.main
-  (:require [clijmage.images-coll :as images-coll]))
-
-(def view (atom nil))
-
-;; === Util ===
-
-(defn runnable [fn]
-  (reify java.lang.Runnable
-    (run [_] (fn))))
-
-;; === Mutate image viewer ===
-
-(defn load-image [path]
-  (new javafx.scene.image.Image (str "file:" path)))
-
-(defn goto! [path]
-  (.setImage (::image-view @view) (load-image path)))
+  (:require [clijmage.util :refer [runnable]]
+            [clijmage.viewer :as viewer]
+            [clijmage.images-coll :as images-coll]))
 
 ;; === Images from stdin ===
 
@@ -30,7 +16,7 @@
                   :left images-coll/move-backward
                   :right images-coll/move-forward)
         new-coll (swap! images-position coll-fn)]
-    (goto! (images-coll/current new-coll))))
+    (viewer/goto! (images-coll/current new-coll))))
 
 ;; === Keys ===
 
@@ -45,43 +31,13 @@
    (combination javafx.scene.input.KeyCode/LEFT [])
    (runnable #(move! :left))})
 
-(defn apply-bindings! [binding-map]
-  (.putAll (.getAccelerators (::scene @view)) binding-map))
-
 ;; === Main ===
 
-(def entry-point
-  (runnable
-   #(let [image-view
-          (new javafx.scene.image.ImageView)
-          vbox
-          (new javafx.scene.layout.VBox (into-array javafx.scene.Node [image-view]))
-          scene
-          (new javafx.scene.Scene vbox)
-          stage
-          (new javafx.stage.Stage)]
-      (reset! view {::image-view image-view
-                    ::vbox vbox
-                    ::scene scene
-                    ::stage stage})
-
-      ;; Set up image view
-      (.setPreserveRatio image-view true)
-      ;; Make fitWidth of image-view be the width of the window
-      (.bind (.fitWidthProperty image-view) (.widthProperty scene))
-
-      ;; Set up stage (image-view is already in scene)
-      (.setScene stage scene)
-      (.show stage)
-
-      ;; Initial keybinds
-      (apply-bindings! default-bindings)
-
-      ;; Initial images
-      (reset! images-position (images-coll/from-seq (lines-from-stdin)))
-
-      ;; Initial image
-      (goto! (images-coll/current @images-position)))))
+(defn after-gui []
+  (viewer/apply-bindings! default-bindings)
+  ;; Load image state and show the first one
+  (reset! images-position (images-coll/from-seq (lines-from-stdin)))
+  (viewer/goto! (images-coll/current @images-position)))
 
 (defn -main [& args]
-  (javafx.application.Platform/startup entry-point))
+  (javafx.application.Platform/startup (viewer/entry-point after-gui)))

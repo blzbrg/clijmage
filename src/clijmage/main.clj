@@ -33,11 +33,33 @@
 
 ;; === Main ===
 
-(defn after-gui []
+(defn user-init-path []
+  (let [config-dir (if-let [config (System/getenv "XDG_CONFIG_HOME")]
+                     (java.nio.file.Path/of config (into-array String []))
+                     ;; Docs claim that user.home always has a value, so consult it last
+                     (let [home (or (System/getenv "HOME") (System/getProperty "user.home"))]
+                       (java.nio.file.Path/of home (into-array [".config"]))))]
+    (-> config-dir
+        (.resolve "clijmage")
+        (.resolve "init.clj"))))
+
+(defn try-user-init! []
+  (let [path (user-init-path)
+        file (.toFile path)]
+    (if (.canRead file)
+      (load-file (str path))
+      (if (.exists file)
+        ;; If the path is unreadable but exists, print a warning
+        (println "Init script" path "is unreadable")))))
+
+(defn after-gui [user-init?]
   (viewer/apply-bindings! default-bindings)
   ;; Load image state and show the first one
   (reset! images-position (images-coll/from-seq (lines-from-stdin)))
-  (viewer/goto! (images-coll/current @images-position)))
+  (viewer/goto! (images-coll/current @images-position))
+
+  (if user-init?
+    (try-user-init!)))
 
 (defn -main [& args]
-  (javafx.application.Platform/startup (viewer/entry-point after-gui)))
+  (javafx.application.Platform/startup (viewer/entry-point #(after-gui true))))

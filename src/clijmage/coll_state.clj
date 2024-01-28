@@ -6,6 +6,7 @@
 
 (defn init! [image-paths]
   (->> image-paths
+       (map (fn [p] {::path p}))
        (forward-backward/from-seq)
        (reset! images-position)))
 
@@ -14,10 +15,11 @@
                   :left forward-backward/move-backward
                   :right forward-backward/move-forward)
         new-coll (swap! images-position coll-fn)]
-    (viewer/goto! (forward-backward/current new-coll))))
+    ;; Don't deref again - use the value we swapped in
+    (viewer/goto! (::path (forward-backward/current new-coll)))))
 
 (defn current-image []
-  (forward-backward/current @images-position))
+  (::path (forward-backward/current @images-position)))
 
 (defn maybe-show-current! []
   (if-let [cur (current-image)]

@@ -2,6 +2,7 @@
   (:require [clijmage.util :refer [runnable]]
             [clijmage.viewer :as viewer]
             [clijmage.coll-state :as coll-state]
+            [clijmage.keys :as keys]
             [clijmage.images-coll :as images-coll]
             [clojure.tools.namespace.parse]
             [clojure.tools.namespace.file]))
@@ -11,19 +12,6 @@
 (defn lines-from-stdin []
   ;; TODO: Is  a read-line loop more efficient? Does anyone care?
   (clojure.string/split-lines (slurp *in*)))
-
-;; === Keys ===
-
-(defn combination [key mods]
-  (new javafx.scene.input.KeyCodeCombination
-       key
-       (into-array javafx.scene.input.KeyCombination$Modifier mods)))
-
-(def default-bindings
-  {(combination javafx.scene.input.KeyCode/RIGHT [])
-   (runnable #(coll-state/move! :right))
-   (combination javafx.scene.input.KeyCode/LEFT [])
-   (runnable #(coll-state/move! :left))})
 
 ;; === Main ===
 
@@ -72,7 +60,7 @@
     run-user-init ::run-user-init
     init-ns ::init-ns}]
   (if apply-default-bindings
-    (viewer/apply-bindings! default-bindings))
+    (keys/merge-bindings! keys/default-bindings))
 
   ;; Load image paths
   (if load-image-coll-from-stdin

@@ -3,7 +3,6 @@
             [clijmage.viewer :as viewer]
             [clijmage.coll-state :as coll-state]
             [clijmage.keys :as keys]
-            [clijmage.forward-backward :as forward-backward]
             [clojure.tools.namespace.parse]
             [clojure.tools.namespace.file]))
 
@@ -62,14 +61,14 @@
   (if apply-default-bindings
     (keys/merge-bindings! keys/default-bindings))
 
-  ;; Load image paths
-  (if load-image-coll-from-stdin
-    (reset! coll-state/images-position (forward-backward/from-seq (lines-from-stdin))))
+  ;; Set up state w/ paths, or empty list
+  (coll-state/init! (if load-image-coll-from-stdin
+                      (lines-from-stdin)
+                      []))
 
   ;; Show the current image
   (if show-initial-image
-    (if-let [pos @coll-state/images-position]
-      (viewer/goto! (forward-backward/current pos))))
+    (coll-state/maybe-show-current!))
 
   ;; Run user init.
   (if run-user-init

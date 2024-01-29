@@ -8,8 +8,10 @@
 (defn load-image [path]
   (new javafx.scene.image.Image (str "file:" path)))
 
-(defn goto! [path]
-  (.setImage (::image-view @view) (load-image path)))
+(defn goto! [path status-text]
+  (let [{image-view ::image-view status-line ::status-line} @view]
+    (.setText status-line status-text)
+    (.setImage image-view (load-image path))))
 
 ;; === Close handler ===
 (def close-callbacks (atom {}))
@@ -37,18 +39,27 @@
 
 (defn entry-point [continuation]
   (runnable
-   #(let [image-view
+   #(let [default-size (.getSize (javafx.scene.text.Font/getDefault))
+          bigger (new javafx.scene.text.Font (* 1.5 default-size))
+          ;; Start with some dummy content. GTK issues a "critical" error when the width is zero,
+          ;; but everything seems to work fine
+          status-line
+          (new javafx.scene.control.Label " ")
+          image-view
           (new javafx.scene.image.ImageView)
           vbox
-          (new javafx.scene.layout.VBox (into-array javafx.scene.Node [image-view]))
+          (new javafx.scene.layout.VBox (into-array javafx.scene.Node [status-line image-view]))
           scene
           (new javafx.scene.Scene vbox)
           stage
           (new javafx.stage.Stage)]
       (reset! view {::image-view image-view
+                    ::status-line status-line
                     ::vbox vbox
                     ::scene scene
                     ::stage stage})
+
+      (.setFont status-line bigger)
 
       ;; Set up image view
       (.setPreserveRatio image-view true)

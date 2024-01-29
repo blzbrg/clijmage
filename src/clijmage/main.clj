@@ -1,21 +1,9 @@
 (ns clijmage.main
-  (:require [clijmage.images-coll :as images-coll]))
-
-(def view (atom nil))
-
-;; === Util ===
-
-(defn runnable [fn]
-  (reify java.lang.Runnable
-    (run [_] (fn))))
-
-;; === Mutate image viewer ===
-
-(defn load-image [path]
-  (new javafx.scene.image.Image (str "file:" path)))
-
-(defn goto! [path]
-  (.setImage (::image-view @view) (load-image path)))
+  (:require [clijmage.util :refer [runnable]]
+            [clijmage.viewer :as viewer]
+            [clijmage.images-coll :as images-coll]
+            [clojure.tools.namespace.parse]
+            [clojure.tools.namespace.file]))
 
 ;; === Images from stdin ===
 
@@ -30,7 +18,7 @@
                   :left images-coll/move-backward
                   :right images-coll/move-forward)
         new-coll (swap! images-position coll-fn)]
-    (goto! (images-coll/current new-coll))))
+    (viewer/goto! (images-coll/current new-coll))))
 
 ;; === Keys ===
 
@@ -45,43 +33,77 @@
    (combination javafx.scene.input.KeyCode/LEFT [])
    (runnable #(move! :left))})
 
-(defn apply-bindings! [binding-map]
-  (.putAll (.getAccelerators (::scene @view)) binding-map))
-
 ;; === Main ===
 
-(def entry-point
-  (runnable
-   #(let [image-view
-          (new javafx.scene.image.ImageView)
-          vbox
-          (new javafx.scene.layout.VBox (into-array javafx.scene.Node [image-view]))
-          scene
-          (new javafx.scene.Scene vbox)
-          stage
-          (new javafx.stage.Stage)]
-      (reset! view {::image-view image-view
-                    ::vbox vbox
-                    ::scene scene
-                    ::stage stage})
+(def default-startup-options
+  {::apply-default-bindings true
+   ::load-image-coll-from-stdin true
+   ::show-initial-image true
+   ::run-user-init true})
 
-      ;; Set up image view
-      (.setPreserveRatio image-view true)
-      ;; Make fitWidth of image-view be the width of the window
-      (.bind (.fitWidthProperty image-view) (.widthProperty scene))
+(defn user-init-path []
+  (let [config-dir (if-let [config (System/getenv "XDG_CONFIG_HOME")]
+                     (java.nio.file.Path/of config (into-array String []))
+                     ;; Docs claim that user.home always has a value, so consult it last
+                     (let [home (or (System/getenv "HOME") (System/getProperty "user.home"))]
+                       (java.nio.file.Path/of home (into-array [".config"]))))]
+    (-> config-dir
+        (.resolve "clijmage")
+        (.resolve "init.clj"))))
 
-      ;; Set up stage (image-view is already in scene)
-      (.setScene stage scene)
-      (.show stage)
+(defn try-load-user-init! []
+  (let [path (user-init-path)
+        file (.toFile path)]
+    (if (.canRead file)
+      (let [ns-name (-> file
+                        (clojure.tools.namespace.file/read-file-ns-decl)
+                        (clojure.tools.namespace.parse/name-from-ns-decl))]
+        (load-file (str path))
+        (find-ns ns-name))
+      (if (.exists file)
+        ;; If the path is unreadable but exists, print a warning
+        (println "Init script" path "is unreadable")))))
 
-      ;; Initial keybinds
-      (apply-bindings! default-bindings)
+(defn after-gui
+  "Called after the GUI is created. This function will:
 
-      ;; Initial images
-      (reset! images-position (images-coll/from-seq (lines-from-stdin)))
+  1. Apply the default keybinds
+  2. Load a list of image paths from standard in
+  3. Show the current image in `images-position` in the viewer
+  4. Run the `init` function from the user init NS
 
-      ;; Initial image
-      (goto! (images-coll/current @images-position)))))
+  However, the `startup-options` map in the user init NS can disable
+  each of these steps."
+  [{apply-default-bindings ::apply-default-bindings
+    load-image-coll-from-stdin ::load-image-coll-from-stdin
+    show-initial-image ::show-initial-image
+    run-user-init ::run-user-init
+    init-ns ::init-ns}]
+  (if apply-default-bindings
+    (viewer/apply-bindings! default-bindings))
+
+  ;; Load image paths
+  (if load-image-coll-from-stdin
+    (reset! images-position (images-coll/from-seq (lines-from-stdin))))
+
+  ;; Show the current image
+  (if show-initial-image
+    (if-let [pos @images-position]
+      (viewer/goto! (images-coll/current @images-position))))
+
+  ;; Run user init.
+  (if run-user-init
+    (if-let [init-fn (get (ns-map init-ns) 'init)]
+      (init-fn)
+      (println "No `init` in namespace" (ns-name init-ns)))))
 
 (defn -main [& args]
-  (javafx.application.Platform/startup entry-point))
+  (let [init-ns (try-load-user-init!)
+        ;; If the init file was loaded, an NS was parsed from it, and startup-options is in it,
+        ;; merge into defaults.
+        startup-options (merge default-startup-options
+                               (if init-ns
+                                 (if-let [init-opt-v (get (ns-map init-ns) 'startup-options)]
+                                   @init-opt-v)))
+        startup-options-aug (assoc startup-options ::init-ns init-ns)]
+    (javafx.application.Platform/startup (viewer/entry-point #(after-gui startup-options-aug)))))

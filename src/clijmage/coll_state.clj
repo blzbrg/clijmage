@@ -6,7 +6,8 @@
 
 (defn init! [image-paths]
   (->> image-paths
-       (map (fn [p] {::path p}))
+       (map (fn [p] {::path p
+                     ::marks (sorted-set)}))
        (forward-backward/from-seq)
        (reset! images-position)))
 
@@ -49,4 +50,18 @@
   (if-let [coll @images-position]
     (let [cur (forward-backward/current coll)]
       (goto! cur))))
+
+(defn change-current! [f]
+  ;; Return the new current
+  (forward-backward/current (swap! images-position forward-backward/change-current f)))
+
+;; === Marks ===
+
+(defn toggle-mark-current! [mark-identifier]
+  (let [new-state (change-current!
+                   (fn [per-image-state]
+                     (update per-image-state ::marks #(if (contains? % mark-identifier)
+                                                        (disj % mark-identifier)
+                                                        (conj % mark-identifier)))))]
+    (goto! new-state)))
 

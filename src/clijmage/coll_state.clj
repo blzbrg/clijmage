@@ -14,20 +14,27 @@
 ;; === Status text ===
 
 (defmulti state->status-text
+  "Given a `[key value]` pair from the state for an individual image,
+  return `[position-pref string-rep]`. `position-pref` indicates where
+  this text should be in the status bar relative to others. Smaller is
+  further to the left."
   first)
 
 (defmethod state->status-text :default [[_ v]]
-  v)
+  [50 v])
 
 (defmethod state->status-text ::marks [[_ marks]]
-  ["[" (map str marks) "]"])
+  [10 (str "[" (clojure.string/join " " (map str marks)) "]")])
 
 (defn status-text [cur]
   (->> cur
        (map state->status-text)
-       (map (fn [s] (cons s " "))) ; space after each
-       (flatten)
-       (apply str)))
+       (group-by first)
+       (into (sorted-map))
+       (vals)
+       (apply concat) ; flatten one level
+       (map second) ; drop the numbers
+       (clojure.string/join " ")))
 
 ;; === Move and state ===
 

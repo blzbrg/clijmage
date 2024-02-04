@@ -2,14 +2,15 @@
   (:require [clijmage.forward-backward :as forward-backward]
             [clijmage.viewer :as viewer]))
 
-(def ^:private images-position (atom nil))
+(def ^:private images-position (ref nil))
 
 (defn init! [image-paths]
-  (->> image-paths
-       (map (fn [p] {::path p
-                     ::marks (sorted-set)}))
-       (forward-backward/from-seq)
-       (reset! images-position)))
+  (let [v
+        (->> image-paths
+             (map (fn [p] {::path p
+                           ::marks (sorted-set)}))
+             (forward-backward/from-seq))]
+    (dosync (ref-set images-position v))))
 
 ;; === Status text ===
 
@@ -46,7 +47,7 @@
   (let [coll-fn (case instruction
                   :left forward-backward/move-backward
                   :right forward-backward/move-forward)
-        new-coll (swap! images-position coll-fn)]
+        new-coll (dosync (alter images-position coll-fn))]
     ;; Don't deref again - use the value we swapped in
     (goto! (forward-backward/current new-coll))))
 
@@ -60,7 +61,7 @@
 
 (defn change-current! [f]
   ;; Return the new current
-  (forward-backward/current (swap! images-position forward-backward/change-current f)))
+  (forward-backward/current (dosync (alter images-position forward-backward/change-current f))))
 
 ;; === Marks ===
 

@@ -3,6 +3,7 @@
             [clijmage.viewer :as viewer]))
 
 (def ^:private images-position (ref nil))
+(def ^:private states-stack (ref '()))
 
 (defn init! [image-paths]
   (let [v
@@ -63,6 +64,40 @@
   ;; Return the new current
   (forward-backward/current (dosync (alter images-position forward-backward/change-current f))))
 
+;; === Stack of states ===
+
+(defn push-state-derive!
+  "Replace current coll with the value of `(apply new-state-fn coll
+  args)` and push the old state onto the state stack. Returns the new
+  curent coll."
+  [new-state-fn & args]
+  (let [new-state (dosync
+                   (let [cur-state @images-position
+                         new-state (apply alter images-position new-state-fn args)]
+                     (alter states-stack conj cur-state)
+                     new-state))]
+    (goto! (forward-backward/current new-state))
+    new-state))
+
+(defn push-state!
+  "Push the current state coll into the state stack, and instate
+  `new-state` as the current one."
+  [new-state]
+  (push-state-derive! (fn [_] new-state)))
+
+(defn pop-state!
+  "Pop the top of the coll stack and make it the current coll. The
+  previous coll is returned."
+  []
+  (let [old-state (dosync
+                   (let [cur-state @images-position
+                         new-state (first @states-stack)]
+                     (ref-set images-position new-state)
+                     (alter states-stack rest)
+                     cur-state))]
+    (goto! (forward-backward/current @images-position))
+    old-state))
+
 ;; === Marks ===
 
 (defn toggle-mark-current! [mark-identifier]
@@ -73,3 +108,9 @@
                                                         (conj % mark-identifier)))))]
     (goto! new-state)))
 
+(defn narrow-to-marked!
+  [mark-identifier]
+  (push-state-derive!
+   (fn [old-state] (->> old-state
+                        (forward-backward/filter #(contains? (::marks %) mark-identifier))
+                        (forward-backward/map #(assoc % ::marks #{}))))))

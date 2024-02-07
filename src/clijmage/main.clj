@@ -1,7 +1,8 @@
 (ns clijmage.main
   (:require [clijmage.util :refer [runnable]]
             [clijmage.viewer :as viewer]
-            [clijmage.images-coll :as images-coll]
+            [clijmage.coll-state :as coll-state]
+            [clijmage.keys :as keys]
             [clojure.tools.namespace.parse]
             [clojure.tools.namespace.file]))
 
@@ -10,28 +11,6 @@
 (defn lines-from-stdin []
   ;; TODO: Is  a read-line loop more efficient? Does anyone care?
   (clojure.string/split-lines (slurp *in*)))
-
-(def images-position (atom nil))
-
-(defn move! [instruction]
-  (let [coll-fn (case instruction
-                  :left images-coll/move-backward
-                  :right images-coll/move-forward)
-        new-coll (swap! images-position coll-fn)]
-    (viewer/goto! (images-coll/current new-coll))))
-
-;; === Keys ===
-
-(defn combination [key mods]
-  (new javafx.scene.input.KeyCodeCombination
-       key
-       (into-array javafx.scene.input.KeyCombination$Modifier mods)))
-
-(def default-bindings
-  {(combination javafx.scene.input.KeyCode/RIGHT [])
-   (runnable #(move! :right))
-   (combination javafx.scene.input.KeyCode/LEFT [])
-   (runnable #(move! :left))})
 
 ;; === Main ===
 
@@ -80,16 +59,16 @@
     run-user-init ::run-user-init
     init-ns ::init-ns}]
   (if apply-default-bindings
-    (viewer/apply-bindings! default-bindings))
+    (keys/merge-bindings! keys/default-bindings))
 
-  ;; Load image paths
-  (if load-image-coll-from-stdin
-    (reset! images-position (images-coll/from-seq (lines-from-stdin))))
+  ;; Set up state w/ paths, or empty list
+  (coll-state/init! (if load-image-coll-from-stdin
+                      (lines-from-stdin)
+                      []))
 
   ;; Show the current image
   (if show-initial-image
-    (if-let [pos @images-position]
-      (viewer/goto! (images-coll/current @images-position))))
+    (coll-state/maybe-show-current!))
 
   ;; Run user init.
   (if run-user-init

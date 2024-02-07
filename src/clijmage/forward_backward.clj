@@ -1,4 +1,4 @@
-(ns clijmage.images-coll
+(ns clijmage.forward-backward
   (:require [clojure.test :as test]))
 
 (defn from-seq [s]

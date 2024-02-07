@@ -13,8 +13,8 @@
 
 ;; === GUI ===
 
-(defn apply-bindings! [binding-map]
-  (.putAll (.getAccelerators (::scene @view)) binding-map))
+(defn accelerators []
+  (.getAccelerators (::scene @view)))
 
 (defn entry-point [continuation]
   (runnable

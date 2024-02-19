@@ -114,3 +114,10 @@
    (fn [old-state] (->> old-state
                         (forward-backward/filter #(contains? (::marks %) mark-identifier))
                         (forward-backward/map #(assoc % ::marks #{}))))))
+
+(defn get-marked
+  [mark-identifier]
+  (->> @images-position
+       (forward-backward/filter #(contains? (::marks %) mark-identifier))
+       (forward-backward/to-seq)
+       (map #(::path %))))

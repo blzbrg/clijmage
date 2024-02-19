@@ -6,6 +6,9 @@
    ::current (first s)
    ::after (rest s)})
 
+(defn to-seq [{before ::before current ::current after ::after}]
+  (concat before [current] after))
+
 (defn current [c]
   (::current c))
 
@@ -34,6 +37,7 @@
 (test/deftest forward-and-backward
   (let [initial (from-seq '(a b c))]
     (test/is (= (current initial) 'a))
+    (test/is (= (to-seq initial) '(a b c)))
     (let [middle (move-forward initial)]
       (test/is (= (current middle) 'b))
       (test/is (= (move-backward middle) initial))

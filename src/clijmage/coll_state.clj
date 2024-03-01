@@ -2,21 +2,27 @@
   (:require [clijmage.forward-backward :as forward-backward]
             [clijmage.viewer :as viewer]))
 
-(def ^:private images-position (ref nil))
-(def ^:private states-stack (ref '()))
+;; Note that the initial values of image-states and sequence-stack are not normally used, since they
+;; are overwritten in init!.
+
+(def ^:private image-states
+  "Map from path to map of state"
+  (ref {}))
+
+(def ^:private sequence-stack
+  "List of forward-backward paths. The last element is the initial inputs, and the head of the list is the current one"
+  (ref (list)))
 
 (defn init! [image-paths]
-  (let [v
-        (->> image-paths
-             (map (fn [p] {::path p
-                           ::marks (sorted-set)}))
-             (forward-backward/from-seq))]
-    (dosync (ref-set images-position v))))
+  (dosync
+   (ref-set sequence-stack (list (forward-backward/from-seq image-paths)))
+   (let [init-state {::marks (sorted-set)}]
+     (ref-set image-states (into {} (map (fn [path] [path init-state]) image-paths))))))
 
 ;; === Status text ===
 
 (defmulti state->status-text
-  "Given a `[key value]` pair from the state for an individual image,
+  "Given a `[key value]` pair from the value for an image in image-states
   return `[position-pref string-rep]`. `position-pref` indicates where
   this text should be in the status bar relative to others. Smaller is
   further to the left."
@@ -28,96 +34,84 @@
 (defmethod state->status-text ::marks [[_ marks]]
   [10 (str "[" (clojure.string/join " " (map str marks)) "]")])
 
-(defn status-text [cur]
-  (->> cur
-       (map state->status-text)
-       (group-by first)
-       (into (sorted-map))
-       (vals)
-       (apply concat) ; flatten one level
-       (map second) ; drop the numbers
-       (clojure.string/join " ")))
+(defn status-text [path image-state]
+  (let [status-items (->> image-state
+                          (map state->status-text)
+                          (group-by first)
+                          (into (sorted-map)))
+        ;; Put the path in at position-pref of 100
+        augmented-items (update status-items 100 conj [100 path])]
+    (->> augmented-items
+         (vals)
+         (apply concat) ; flatten one level
+         (map second) ; drop the numbers
+         (clojure.string/join " "))))
 
 ;; === Move and state ===
 
-(defn goto! [state]
-  (viewer/goto! (::path state)
-                (status-text state)))
+(defn goto! [path image-state]
+  (viewer/goto! path
+                (status-text path image-state)))
+
+(defn update-first [coll f & args]
+  ;; conj puts at the same place peek looks
+  (conj (pop coll) (apply f (peek coll) args)))
 
 (defn move! [instruction]
   (let [coll-fn (case instruction
                   :left forward-backward/move-backward
                   :right forward-backward/move-forward)
-        new-coll (dosync (alter images-position coll-fn))]
-    ;; Don't deref again - use the value we swapped in
-    (goto! (forward-backward/current new-coll))))
+        [path image-state] (dosync (let [[fb & _] (alter sequence-stack update-first coll-fn)
+                                         path (forward-backward/current fb)]
+                                     [path (get @image-states path)]))]
+    ;; Don't deref again
+    (goto! path image-state)))
 
 (defn current-image []
-  (::path (forward-backward/current @images-position)))
+  (-> @sequence-stack
+      (first)
+      (forward-backward/current)))
 
 (defn maybe-show-current! []
-  (if-let [coll @images-position]
-    (let [cur (forward-backward/current coll)]
-      (goto! cur))))
+  (apply goto! (dosync (if-let [fb (first @sequence-stack)]
+                         (let [path (forward-backward/current fb)]
+                           [path (get @image-states path)])))))
 
 (defn change-current! [f]
-  ;; Return the new current
-  (forward-backward/current (dosync (alter images-position forward-backward/change-current f))))
-
-;; === Stack of states ===
-
-(defn push-state-derive!
-  "Replace current coll with the value of `(apply new-state-fn coll
-  args)` and push the old state onto the state stack. Returns the new
-  curent coll."
-  [new-state-fn & args]
-  (let [new-state (dosync
-                   (let [cur-state @images-position
-                         new-state (apply alter images-position new-state-fn args)]
-                     (alter states-stack conj cur-state)
-                     new-state))]
-    (goto! (forward-backward/current new-state))
-    new-state))
-
-(defn push-state!
-  "Push the current state coll into the state stack, and instate
-  `new-state` as the current one."
-  [new-state]
-  (push-state-derive! (fn [_] new-state)))
-
-(defn pop-state!
-  "Pop the top of the coll stack and make it the current coll. The
-  previous coll is returned."
-  []
-  (let [old-state (dosync
-                   (let [cur-state @images-position
-                         new-state (first @states-stack)]
-                     (ref-set images-position new-state)
-                     (alter states-stack rest)
-                     cur-state))]
-    (goto! (forward-backward/current @images-position))
-    old-state))
+  "Pass the image-state of the current image with the result of the function applied to the current
+  image-state. Returns [path new-image-state]."
+  (dosync (let [path (forward-backward/current (first @sequence-stack))]
+            ;; Update the image state then return the new state
+            [path (get (alter image-states update path f) path)])))
 
 ;; === Marks ===
 
 (defn toggle-mark-current! [mark-identifier]
-  (let [new-state (change-current!
-                   (fn [per-image-state]
-                     (update per-image-state ::marks #(if (contains? % mark-identifier)
-                                                        (disj % mark-identifier)
-                                                        (conj % mark-identifier)))))]
-    (goto! new-state)))
+  (apply goto! (change-current!
+                (fn [per-image-state]
+                  (update per-image-state ::marks #(if (contains? % mark-identifier)
+                                                     (disj % mark-identifier)
+                                                     (conj % mark-identifier)))))))
 
-(defn narrow-to-marked!
-  [mark-identifier]
-  (push-state-derive!
-   (fn [old-state] (->> old-state
-                        (forward-backward/filter #(contains? (::marks %) mark-identifier))
-                        (forward-backward/map #(assoc % ::marks #{}))))))
+(defn ^:private get-marked-impl [mark-identifier]
+  "Get marked paths, as a forward-backward. Should be used inside a dosync to get consistent results."
+  (->> @sequence-stack
+       (first)
+       (forward-backward/filter #(contains? (::marks (get @image-states %)) mark-identifier))))
 
 (defn get-marked
   [mark-identifier]
-  (->> @images-position
-       (forward-backward/filter #(contains? (::marks %) mark-identifier))
-       (forward-backward/to-seq)
-       (map #(::path %))))
+  (forward-backward/to-seq (dosync (get-marked-impl mark-identifier))))
+
+;; === Narrow and widen ===
+
+(defn narrow-to-marked!
+  [mark-identifier]
+  (dosync (let [marked-paths (get-marked-impl mark-identifier)]
+            (alter sequence-stack conj marked-paths))))
+
+(defn widen!
+  []
+  (apply goto! (dosync (let [[paths & _] (alter sequence-stack pop)
+                             path (forward-backward/current paths)]
+                         [path (get @image-states path)]))))

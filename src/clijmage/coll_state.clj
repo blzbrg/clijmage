@@ -107,8 +107,10 @@
 
 (defn narrow-to-marked!
   [mark-identifier]
-  (dosync (let [marked-paths (get-marked-impl mark-identifier)]
-            (alter sequence-stack conj marked-paths))))
+  (apply goto! (dosync (let [marked-paths (get-marked-impl mark-identifier)
+                             [paths & _] (alter sequence-stack conj marked-paths)
+                             path (forward-backward/current paths)]
+                         [path (get @image-states path)]))))
 
 (defn widen!
   []

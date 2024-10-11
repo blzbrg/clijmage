@@ -2,20 +2,24 @@
   (:require [clijmage.forward-backward :as forward-backward]
             [clijmage.viewer :as viewer]))
 
-;; Note that the initial values of image-states and sequence-stack are not normally used, since they
-;; are overwritten in init!.
+;; Note that the initial values of image-states and fb should not be used, since they are
+;; overwritten in init!.
 
 (def ^:private image-states
   "Map from path to map of state"
   (ref {}))
 
-(def ^:private sequence-stack
-  "List of forward-backward paths. The last element is the initial inputs, and the head of the list is the current one"
-  (ref (list)))
+(def ^:private fb
+  "Forward-backward holding the sequence of images"
+  (ref nil))
+
+(def ^:private visible-p
+  "Predicate to decide if an image is currently visible"
+  (ref nil))
 
 (defn init! [image-paths]
   (dosync
-   (ref-set sequence-stack (list (forward-backward/from-seq image-paths)))
+   (ref-set fb (forward-backward/from-seq image-paths))
    (let [init-state {::marks (sorted-set)}]
      (ref-set image-states (into {} (map (fn [path] [path init-state]) image-paths))))))
 
@@ -57,30 +61,38 @@
   ;; conj puts at the same place peek looks
   (conj (pop coll) (apply f (peek coll) args)))
 
+(defn ^:private move-transform-impl [fb instruction maybe-pred]
+  (if maybe-pred
+    ((case instruction
+       :left forward-backward/move-backward-until
+       :right forward-backward/move-forward-until)
+     fb
+     maybe-pred)
+    ((case instruction
+       :left forward-backward/move-backward
+       :right forward-backward/move-forward)
+     fb)))
+
 (defn move! [instruction]
-  (let [coll-fn (case instruction
-                  :left forward-backward/move-backward
-                  :right forward-backward/move-forward)
-        [path image-state] (dosync (let [[fb & _] (alter sequence-stack update-first coll-fn)
+  (let [[path image-state] (dosync (let [fb (alter fb move-transform-impl instruction @visible-p)
                                          path (forward-backward/current fb)]
                                      [path (get @image-states path)]))]
     ;; Don't deref again
     (goto! path image-state)))
 
 (defn current-image []
-  (-> @sequence-stack
-      (first)
-      (forward-backward/current)))
+  (forward-backward/current @fb))
 
 (defn maybe-show-current! []
-  (apply goto! (dosync (if-let [fb (first @sequence-stack)]
-                         (let [path (forward-backward/current fb)]
-                           [path (get @image-states path)])))))
+  "Show the current item if there is one, otherwise noop. Called from main when first starting."
+  (if-let [args (dosync (if-let [path (forward-backward/current @fb)]
+                          [path (get @image-states path)]))]
+    (apply goto! args)))
 
 (defn change-current! [f]
   "Pass the image-state of the current image with the result of the function applied to the current
   image-state. Returns [path new-image-state]."
-  (dosync (let [path (forward-backward/current (first @sequence-stack))]
+  (dosync (let [path (forward-backward/current @fb)]
             ;; Update the image state then return the new state
             [path (get (alter image-states update path f) path)])))
 
@@ -93,11 +105,12 @@
                                                      (disj % mark-identifier)
                                                      (conj % mark-identifier)))))))
 
+(defn marked? [mark-identifier path]
+  (contains? (::marks (get @image-states path)) mark-identifier))
+
 (defn ^:private get-marked-impl [mark-identifier]
   "Get marked paths, as a forward-backward. Should be used inside a dosync to get consistent results."
-  (->> @sequence-stack
-       (first)
-       (forward-backward/filter #(contains? (::marks (get @image-states %)) mark-identifier))))
+  (forward-backward/filter #(contains? (::marks (get @image-states %)) mark-identifier) @fb))
 
 (defn get-marked
   [mark-identifier]
@@ -105,15 +118,36 @@
 
 ;; === Narrow and widen ===
 
-(defn narrow-to-marked!
-  [mark-identifier]
-  (apply goto! (dosync (let [marked-paths (get-marked-impl mark-identifier)
-                             [paths & _] (alter sequence-stack conj marked-paths)
-                             path (forward-backward/current paths)]
-                         [path (get @image-states path)]))))
+(defn ^:private try-to-move-if-needed [fb visible?]
+  "Return `fb` transformed s.t. the current satisfies `pred`, if possible, otherwise return
+current fb value unchanged."
+  (if (visible? (forward-backward/current fb))
+    ;; No need to move
+    fb
+    ;; First, try to move backwards until visible-p is satisfied
+    (let [moved-back (forward-backward/move-backward-until fb visible?)]
+      (if (not (= moved-back fb))
+        moved-back
+        ;; If moving backwards didn't get us anywhere, try moving forward.
+        ;;
+        ;; If this gets us nowhere, we will just stay where we are.
+        (forward-backward/move-forward-until fb visible?)))))
 
-(defn widen!
-  []
-  (apply goto! (dosync (let [[paths & _] (alter sequence-stack pop)
-                             path (forward-backward/current paths)]
-                         [path (get @image-states path)]))))
+(defn show-only-marked! [mark-identifier]
+  (apply goto!
+         (dosync
+          (let [;; Update the actual filtering predicate
+                visible? (ref-set visible-p #(marked? mark-identifier %))
+                new-fb (alter fb try-to-move-if-needed @visible-p)
+                new-path (forward-backward/current new-fb)]
+            ;; Regardless of whether we moved, refresh the display
+            [new-path (get @image-states new-path)]))))
+
+(defn show-all! []
+  (apply goto!
+         (dosync
+          ;; Update the actual filtering predicate
+          (ref-set visible-p nil)
+          ;; Refresh the display
+          (let [path (forward-backward/current @fb)]
+            [path (get @image-states path)]))))

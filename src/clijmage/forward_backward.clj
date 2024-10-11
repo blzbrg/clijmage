@@ -46,6 +46,43 @@
         (test/is (= (move-backward end) middle))
         (test/is (= end (move-forward end)))))))
 
+(defn move-forward-until [c pred]
+  (let [[no yes] (split-with (comp not pred) (::after c))]
+    (if-let [new-current (first yes)]
+      {::before (into (conj (::before c) (::current c)) no)
+       ::current new-current
+       ::after (rest yes)}
+      c)))
+
+(test/deftest forward-until-test
+  (let [initial (from-seq '(1 2 3))
+        at-2 (move-forward-until initial even?)]
+    (test/is (= (to-seq at-2) '(1 2 3)))
+    (test/is 2 (current at-2))
+    (test/testing "Move to the next even, which doesn't exist"
+      (test/is (= at-2 (move-forward-until at-2 even?))))
+    (test/testing "Move past the end"
+      (test/is (= at-2 (move-forward-until at-2 #(> % 4)))))))
+
+(defn move-backward-until [c pred]
+  ;; Effectively a complicated destructure of before into:
+  ;; [ yes (reverse of ones that match) | no (reverse of ones that don't match) ]
+  (let [[no yes] (split-with (comp not pred) (rseq (::before c)))]
+    (if-let [new-current (first yes)]
+      {::before (vec (reverse (rest yes)))
+       ::current new-current
+       ;; conj is repeatedly consing, so they get reversed again implicitly to get back to normal
+       ::after (into (conj (::after c) (::current c)) no)}
+      c)))
+
+(test/deftest backward-until-test
+  (let [at-2 (move-forward (from-seq '(1 2 3)))
+        moved-to-1 (move-backward-until at-2 #(< % 2))]
+    (test/is (= (to-seq moved-to-1) (to-seq at-2)))
+    (test/is (= (current moved-to-1) 1))
+    (test/testing "If there are no eligible ones, just stay where we are"
+      (test/is (= at-2 (move-backward-until at-2 #(< % 0)))))))
+
 (defn map
   [f {before ::before current ::current after ::after}]
   {::before (mapv f before)

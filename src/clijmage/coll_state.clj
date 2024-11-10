@@ -1,6 +1,7 @@
 (ns clijmage.coll-state
   (:require [clijmage.forward-backward :as forward-backward]
-            [clijmage.viewer :as viewer]))
+            [clijmage.viewer :as viewer]
+            [clojure.set]))
 
 ;; Note that the initial values of image-states and fb should not be used, since they are
 ;; overwritten in init!.
@@ -95,6 +96,27 @@
   (dosync (let [path (forward-backward/current @fb)]
             ;; Update the image state then return the new state
             [path (get (alter image-states update path f) path)])))
+
+(defn replace-path! [old-path new-path]
+  "Replace the path `old-path` in state with `new-path` in sequences and all other state (such as
+  marks). Returns nil if successful otherwise an error message."
+  (let [change-matching
+        (fn [p] (if (= p old-path) new-path p))
+        [items err]
+        (dosync
+         ;; Protect against weird, undocumented behavior new keys collide or old keys are missing
+         (if-let [err (or (and (contains? @image-states new-path) (str "New path " new-path " is already present"))
+                          (and (not (contains? @image-states old-path)) (str "Old path " old-path " is not present")))]
+           [nil err]
+           [[(alter image-states clojure.set/rename-keys {old-path new-path})
+             (alter fb #(forward-backward/map change-matching %))]
+            nil]))]
+    (if err
+      err
+      (let [[states fb] items
+            current (forward-backward/current fb)]
+        (goto! current (get states current))
+        nil))))
 
 ;; === Marks ===
 

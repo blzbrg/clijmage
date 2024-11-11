@@ -17,8 +17,7 @@
 (def default-startup-options
   {::apply-default-bindings true
    ::load-image-coll-from-stdin true
-   ::show-initial-image true
-   ::run-user-init true})
+   ::show-initial-image true})
 
 (defn user-init-path []
   (let [config-dir (if-let [config (System/getenv "XDG_CONFIG_HOME")]
@@ -46,43 +45,35 @@
 (defn after-gui
   "Called after the GUI is created. This function will:
 
-  1. Apply the default keybinds
-  2. Load a list of image paths from standard in
-  3. Show the current image in `images-position` in the viewer
-  4. Run the `init` function from the user init NS
+  1. Run the `init` from the user init NS, if available.
+  2. Apply the default keybinds
+  3. Load a list of image paths from standard in
+  4. Show the current image in `images-position` in the viewer
 
-  However, the `startup-options` map in the user init NS can disable
-  each of these steps."
-  [{apply-default-bindings ::apply-default-bindings
-    load-image-coll-from-stdin ::load-image-coll-from-stdin
-    show-initial-image ::show-initial-image
-    run-user-init ::run-user-init
-    init-ns ::init-ns}]
-  (if apply-default-bindings
-    (keys/merge-bindings! keys/default-bindings))
+  However, the user `init` fn can return am options map which can disable steps 2 onward. See
+  `default-startup-options`."
+  [init-ns cmdline-args]
 
-  ;; Set up state w/ paths, or empty list
-  (coll-state/init! (if load-image-coll-from-stdin
-                      (lines-from-stdin)
-                      []))
+  ;; Maybe run user init
+  (let [user-opt (if init-ns
+                   (if-let [init-fn (get (ns-map init-ns) 'init)]
+                     (init-fn {:cmdline-args cmdline-args})
+                     (println "No `init` in namespace" (ns-name init-ns))))
+        ;; If it gave us back nil, use default options, otherwise merge them
+        merged-opt (merge default-startup-options (or user-opt {}))]
 
-  ;; Show the current image
-  (if show-initial-image
-    (coll-state/maybe-show-current!))
+    (if (::apply-default-bindings merged-opt)
+      (keys/merge-bindings! keys/default-bindings))
 
-  ;; Run user init.
-  (if run-user-init
-    (if-let [init-fn (get (ns-map init-ns) 'init)]
-      (init-fn)
-      (println "No `init` in namespace" (ns-name init-ns)))))
+    ;; Set up state w/ paths, or empty list
+    (coll-state/init! (if (::load-image-coll-from-stdin merged-opt)
+                        (lines-from-stdin)
+                        []))
+
+    ;; Show the current image
+    (if (::show-initial-image merged-opt)
+      (coll-state/maybe-show-current!))))
 
 (defn -main [& args]
-  (let [init-ns (try-load-user-init!)
-        ;; If the init file was loaded, an NS was parsed from it, and startup-options is in it,
-        ;; merge into defaults.
-        startup-options (merge default-startup-options
-                               (if init-ns
-                                 (if-let [init-opt-v (get (ns-map init-ns) 'startup-options)]
-                                   @init-opt-v)))
-        startup-options-aug (assoc startup-options ::init-ns init-ns)]
-    (javafx.application.Platform/startup (viewer/entry-point #(after-gui startup-options-aug)))))
+  (let [init-ns (try-load-user-init!)]
+    (javafx.application.Platform/startup (viewer/entry-point #(after-gui init-ns args)))))

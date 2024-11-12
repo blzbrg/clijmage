@@ -12,17 +12,14 @@
 
 (def ^:private fb
   "Forward-backward holding the sequence of images"
-  (ref nil))
+  (ref (forward-backward/from-seq [])))
 
 (def ^:private visible-p
   "Predicate to decide if an image is currently visible"
   (ref nil))
 
-(defn init! [image-paths]
-  (dosync
-   (ref-set fb (forward-backward/from-seq image-paths))
-   (let [init-state {::marks (sorted-set)}]
-     (ref-set image-states (into {} (map (fn [path] [path init-state]) image-paths))))))
+(defn set-paths! [image-paths]
+  (dosync (ref-set fb (forward-backward/from-seq image-paths))))
 
 ;; === Status text ===
 
@@ -88,8 +85,9 @@
     (apply goto! args)))
 
 (defn change-current! [f]
-  "Pass the image-state of the current image with the result of the function applied to the current
-  image-state. Returns [path new-image-state]."
+  "Replace the image-state of the current image with the result of `f` applied to the state of the
+  current image. Returns [path new-image-state]. `f` must be tolerant of getting `nil` (it should
+  treat it the same as {})."
   (dosync (let [path (forward-backward/current @fb)]
             ;; Update the image state then return the new state
             [path (get (alter image-states update path f) path)])))
@@ -120,9 +118,19 @@
 (defn toggle-mark-current! [mark-identifier]
   (apply goto! (change-current!
                 (fn [per-image-state]
-                  (update per-image-state ::marks #(if (contains? % mark-identifier)
-                                                     (disj % mark-identifier)
-                                                     (conj % mark-identifier)))))))
+                  ;; If `per-image-state` is `nil` update will act as if it is `{}`, and if it
+                  ;; doesn't contain `::marks`, the inner fn will get nil. This means that marking
+                  ;; is highly tolerant of the ::marks being missing, or the entire image path not
+                  ;; being in image-states.
+                  (update per-image-state
+                          ::marks
+                          (fn [marks]
+                            (if (nil? marks)
+                              ;; if ::marks is absent, create the set containing just the mark (toggle it on)
+                              (sorted-set mark-identifier)
+                              (if (contains? marks mark-identifier)
+                                (disj marks mark-identifier)
+                                (conj marks mark-identifier)))))))))
 
 (defn marked? [mark-identifier path]
   (contains? (::marks (get @image-states path)) mark-identifier))

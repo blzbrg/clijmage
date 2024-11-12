@@ -65,10 +65,9 @@
     (if (::apply-default-bindings merged-opt)
       (keys/merge-bindings! keys/default-bindings))
 
-    ;; Set up state w/ paths, or empty list
-    (coll-state/init! (if (::load-image-coll-from-stdin merged-opt)
-                        (lines-from-stdin)
-                        []))
+    ;; Set up state w/ paths
+    (if (::load-image-coll-from-stdin merged-opt)
+      (coll-state/set-paths! (lines-from-stdin)))
 
     ;; Show the current image
     (if (::show-initial-image merged-opt)

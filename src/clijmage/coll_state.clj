@@ -26,22 +26,19 @@
 
 ;; === Status text ===
 
-(defmulti state->status-text
-  "Given a `[key value]` pair from the value for an image in image-states
-  return `[position-pref string-rep]`. `position-pref` indicates where
-  this text should be in the status bar relative to others. Smaller is
-  further to the left."
-  first)
-
-(defmethod state->status-text :default [[_ v]]
-  [50 v])
-
-(defmethod state->status-text ::marks [[_ marks]]
+(defn marks-status-text-generator [{marks ::marks}]
   [10 (str "[" (clojure.string/join " " (map str marks)) "]")])
 
+(def status-text-generators
+  "List of functions that take a `[key value]` pair from the per-image
+  state in image-states and return `[position-pref
+  string-rep]`. `position-pref` indicates where this text should be in
+  the status bar relative to others. Smaller is further to the left."
+  (atom (list marks-status-text-generator)))
+
 (defn status-text [path image-state]
-  (let [status-items (->> image-state
-                          (map state->status-text)
+  (let [status-items (->> @status-text-generators
+                          (map (fn [f] (f image-state)))
                           (group-by first)
                           (into (sorted-map)))
         ;; Put the path in at position-pref of 100

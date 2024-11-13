@@ -1,6 +1,7 @@
 (ns clijmage.coll-state
   (:require [clijmage.forward-backward :as forward-backward]
             [clijmage.viewer :as viewer]
+            [clijmage.util :refer [runnable]]
             [clojure.set]))
 
 ;; Note that the initial values of image-states and fb should not be used, since they are
@@ -52,6 +53,16 @@
   (viewer/goto! path
                 (status-text path image-state)))
 
+(defn refresh-viewer! []
+  "Show the current image according to `fb` on the viewer, taking into account any per-image state
+  in `image-states`."
+  (if (javafx.application.Platform/isFxApplicationThread)
+    (apply goto! (dosync (let [path (forward-backward/current @fb)]
+                           [path (get @image-states path)])))
+    (javafx.application.Platform/runLater
+     (runnable (fn [] (apply goto! (dosync (let [path (forward-backward/current @fb)]
+                                             [path (get @image-states path)]))))))))
+
 (defn update-first [coll f & args]
   ;; conj puts at the same place peek looks
   (conj (pop coll) (apply f (peek coll) args)))
@@ -69,17 +80,15 @@
      fb)))
 
 (defn move! [instruction]
-  (let [[path image-state] (dosync (let [fb (alter fb move-transform-impl instruction @visible-p)
-                                         path (forward-backward/current fb)]
-                                     [path (get @image-states path)]))]
-    ;; Don't deref again
-    (goto! path image-state)))
+  (dosync (alter fb move-transform-impl instruction @visible-p))
+  (refresh-viewer!))
 
 (defn current-image []
   (forward-backward/current @fb))
 
 (defn maybe-show-current! []
   "Show the current item if there is one, otherwise noop. Called from main when first starting."
+  ;; TODO: can this be combined w/, or in terms of, refresh-viewer!?
   (if-let [args (dosync (if-let [path (forward-backward/current @fb)]
                           [path (get @image-states path)]))]
     (apply goto! args)))
@@ -97,40 +106,38 @@
   marks). Returns nil if successful otherwise an error message."
   (let [change-matching
         (fn [p] (if (= p old-path) new-path p))
-        [items err]
+        err
         (dosync
          ;; Protect against weird, undocumented behavior new keys collide or old keys are missing
          (if-let [err (or (and (contains? @image-states new-path) (str "New path " new-path " is already present"))
                           (and (not (contains? @image-states old-path)) (str "Old path " old-path " is not present")))]
-           [nil err]
-           [[(alter image-states clojure.set/rename-keys {old-path new-path})
-             (alter fb #(forward-backward/map change-matching %))]
-            nil]))]
+           err
+           (do (alter image-states clojure.set/rename-keys {old-path new-path})
+               (alter fb #(forward-backward/map change-matching %))
+               nil)))]
     (if err
       err
-      (let [[states fb] items
-            current (forward-backward/current fb)]
-        (goto! current (get states current))
-        nil))))
+      (do (refresh-viewer!)
+          nil))))
 
 ;; === Marks ===
 
 (defn toggle-mark-current! [mark-identifier]
-  (apply goto! (change-current!
-                (fn [per-image-state]
-                  ;; If `per-image-state` is `nil` update will act as if it is `{}`, and if it
-                  ;; doesn't contain `::marks`, the inner fn will get nil. This means that marking
-                  ;; is highly tolerant of the ::marks being missing, or the entire image path not
-                  ;; being in image-states.
-                  (update per-image-state
-                          ::marks
-                          (fn [marks]
-                            (if (nil? marks)
-                              ;; if ::marks is absent, create the set containing just the mark (toggle it on)
-                              (sorted-set mark-identifier)
-                              (if (contains? marks mark-identifier)
-                                (disj marks mark-identifier)
-                                (conj marks mark-identifier)))))))))
+  (change-current!
+   (fn [per-image-state]
+     ;; If `per-image-state` is `nil` update will act as if it is `{}`, and if it doesn't contain
+     ;; `::marks`, the inner fn will get nil. This means that marking is highly tolerant of
+     ;; the ::marks being missing, or the entire image path not being in image-states.
+     (update per-image-state
+             ::marks
+             (fn [marks]
+               (if (nil? marks)
+                 ;; if ::marks is absent, create the set containing just the mark (toggle it on)
+                 (sorted-set mark-identifier)
+                 (if (contains? marks mark-identifier)
+                   (disj marks mark-identifier)
+                   (conj marks mark-identifier)))))))
+  (refresh-viewer!))
 
 (defn marked? [mark-identifier path]
   (contains? (::marks (get @image-states path)) mark-identifier))
@@ -161,20 +168,16 @@ current fb value unchanged."
         (forward-backward/move-forward-until fb visible?)))))
 
 (defn show-only-marked! [mark-identifier]
-  (apply goto!
-         (dosync
-          (let [;; Update the actual filtering predicate
-                visible? (ref-set visible-p #(marked? mark-identifier %))
-                new-fb (alter fb try-to-move-if-needed @visible-p)
-                new-path (forward-backward/current new-fb)]
-            ;; Regardless of whether we moved, refresh the display
-            [new-path (get @image-states new-path)]))))
+  (dosync
+   ;; Update the actual filtering predicate
+   (ref-set visible-p #(marked? mark-identifier %))
+   ;; We might need to change the current image as a result
+   (alter fb try-to-move-if-needed @visible-p))
+  (refresh-viewer!))
 
 (defn show-all! []
-  (apply goto!
-         (dosync
-          ;; Update the actual filtering predicate
-          (ref-set visible-p nil)
-          ;; Refresh the display
-          (let [path (forward-backward/current @fb)]
-            [path (get @image-states path)]))))
+  (dosync
+   ;; Update the actual filtering predicate
+   (ref-set visible-p nil))
+   ;; Refresh the display
+  (refresh-viewer!))

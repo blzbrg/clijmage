@@ -1,5 +1,5 @@
 (ns clijmage.main
-  (:require [clijmage.util :refer [runnable]]
+  (:require [clijmage.util :as util :refer [runnable]]
             [clijmage.viewer :as viewer]
             [clijmage.coll-state :as coll-state]
             [clijmage.keys :as keys]
@@ -12,11 +12,17 @@
   ;; TODO: Is  a read-line loop more efficient? Does anyone care?
   (clojure.string/split-lines (slurp *in*)))
 
+(defn paths-from-cmdline [args]
+  (->> args
+       (map util/filesystem-path-to-path-list)
+       (flatten)))
+
 ;; === Main ===
 
 (def default-startup-options
   {::apply-default-bindings true
    ::load-image-coll-from-stdin true
+   ::load-images-from-cmdline-args true
    ::show-initial-image true
    ::stdin-repl false})
 
@@ -73,9 +79,13 @@
     (if (::apply-default-bindings merged-opt)
       (keys/merge-bindings! keys/default-bindings))
 
-    ;; Set up state w/ paths
-    (if (::load-image-coll-from-stdin merged-opt)
-      (coll-state/set-paths! (lines-from-stdin)))
+    ;; Setup paths
+    (let [paths (-> (list)
+                    (into (if (::load-image-coll-from-stdin merged-opt)
+                            (lines-from-stdin)))
+                    (into (if (::load-images-from-cmdline-args merged-opt)
+                            (paths-from-cmdline cmdline-args))))]
+      (coll-state/set-paths! paths))
 
     ;; Show the current image
     (if (::show-initial-image merged-opt)

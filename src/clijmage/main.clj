@@ -93,7 +93,8 @@
 
     ;; Repl in another thread
     (if (::stdin-repl merged-opt)
-      (.start (Thread. (runnable (fn [] (clojure.main/repl))))))))
+      ;; Virtual threads are implicitly daemon threads, so when the viewer closes the repl will quit.
+      (.start (Thread/ofVirtual) (runnable (fn [] (clojure.main/repl)))))))
 
 (defn -main [& args]
   (let [init-ns (try-load-user-init!)]

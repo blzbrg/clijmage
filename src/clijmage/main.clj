@@ -1,5 +1,5 @@
 (ns clijmage.main
-  (:require [clijmage.util :refer [runnable]]
+  (:require [clijmage.util :as util :refer [runnable]]
             [clijmage.viewer :as viewer]
             [clijmage.coll-state :as coll-state]
             [clijmage.keys :as keys]
@@ -12,12 +12,19 @@
   ;; TODO: Is  a read-line loop more efficient? Does anyone care?
   (clojure.string/split-lines (slurp *in*)))
 
+(defn paths-from-cmdline [args]
+  (->> args
+       (map util/filesystem-path-to-path-list)
+       (flatten)))
+
 ;; === Main ===
 
 (def default-startup-options
   {::apply-default-bindings true
    ::load-image-coll-from-stdin true
-   ::show-initial-image true})
+   ::load-images-from-cmdline-args true
+   ::show-initial-image true
+   ::stdin-repl false})
 
 (defn user-init-path []
   (let [config-dir (if-let [config (System/getenv "XDG_CONFIG_HOME")]
@@ -62,16 +69,32 @@
         ;; If it gave us back nil, use default options, otherwise merge them
         merged-opt (merge default-startup-options (or user-opt {}))]
 
+    (if (and (::load-image-coll-from-stdin merged-opt) (::stdin-repl merged-opt))
+      ;; lines-from-stdin continues until end-of-stream (end of file, Ctrl-D, etc.), meaning stdin
+      ;; will already be closed by the time we get to the REPL. Although this is fine for loading
+      ;; the paths, the REPL goes into a tight loop printing errors, thus bail out early.
+      (do (println "Nonsense configuration: stdin is being used for REPL and for loading paths.")
+          (System/exit 1)))
+
     (if (::apply-default-bindings merged-opt)
       (keys/merge-bindings! keys/default-bindings))
 
-    ;; Set up state w/ paths
-    (if (::load-image-coll-from-stdin merged-opt)
-      (coll-state/set-paths! (lines-from-stdin)))
+    ;; Setup paths
+    (let [paths (-> (list)
+                    (into (if (::load-image-coll-from-stdin merged-opt)
+                            (lines-from-stdin)))
+                    (into (if (::load-images-from-cmdline-args merged-opt)
+                            (paths-from-cmdline cmdline-args))))]
+      (coll-state/set-paths! paths))
 
     ;; Show the current image
     (if (::show-initial-image merged-opt)
-      (coll-state/maybe-show-current!))))
+      (coll-state/maybe-show-current!))
+
+    ;; Repl in another thread
+    (if (::stdin-repl merged-opt)
+      ;; Virtual threads are implicitly daemon threads, so when the viewer closes the repl will quit.
+      (.start (Thread/ofVirtual) (runnable (fn [] (clojure.main/repl)))))))
 
 (defn -main [& args]
   (let [init-ns (try-load-user-init!)]

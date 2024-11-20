@@ -61,10 +61,12 @@
 
       (.setFont status-line bigger)
 
-      ;; Set up image view
+      ;; Scale the image in the image-view to fit into the window
       (.setPreserveRatio image-view true)
-      ;; Make fitWidth of image-view be the width of the window
+      ;; Empirically, binding to scene dimensions seems to be the same as binding to stage
+      ;; dimensions. This is consistent with documentation, but not explicitly said, either.
       (.bind (.fitWidthProperty image-view) (.widthProperty scene))
+      (.bind (.fitHeightProperty image-view) (.heightProperty scene))
 
       ;; Close handler
       (.setOnCloseRequest stage

@@ -4,7 +4,8 @@
             [clijmage.coll-state :as coll-state]
             [clijmage.keys :as keys]
             [clojure.tools.namespace.parse]
-            [clojure.tools.namespace.file]))
+            [clojure.tools.namespace.file])
+  (:gen-class))
 
 ;; === Images from stdin ===
 

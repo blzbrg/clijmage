@@ -5,4 +5,9 @@
         org.clojure/tools.namespace {:mvn/version "1.4.5"}}
  :aliases {:test {:paths ["src" "test"] ; src is on the classpath so that we can require the
                                         ; namespaces to test them
-                  :exec-fn clijmage.test_entry_point/test-main}}}
+                  :exec-fn clijmage.test_entry_point/test-main}
+           ;; "verbs" inside the build alias are fns inside build.clj
+           ;;
+           ;; sample invocation: clj -T:build uberjar
+           :build {:deps {io.github.clojure/tools.build {:git/tag "v0.10.5" :git/sha "2a21b7a"}}
+                   :ns-default build}}}

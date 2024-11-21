@@ -139,6 +139,15 @@
                    (conj marks mark-identifier)))))))
   (refresh-viewer!))
 
+(defn unmark-all! [mark-identifier]
+  (letfn [(marked? [v] (contains? (::marks v) mark-identifier))
+          (transform [[k v]] [k (if (marked? v)
+                                  ;; If it is marked, we know ::marks set is initialized for this v so update is safe to use
+                                  (update v ::marks disj mark-identifier)
+                                  v)])]
+    (dosync (alter image-states #(into {} (map transform) %))))
+  (refresh-viewer!))
+
 (defn marked? [mark-identifier path]
   (contains? (::marks (get @image-states path)) mark-identifier))
 

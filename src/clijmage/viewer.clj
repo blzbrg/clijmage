@@ -37,7 +37,7 @@
 (defn accelerators []
   (.getAccelerators (::scene @view)))
 
-(defn entry-point [continuation]
+(defn entry-point [window-title continuation]
   (runnable
    #(let [default-size (.getSize (javafx.scene.text.Font/getDefault))
           bigger (new javafx.scene.text.Font (* 1.5 default-size))
@@ -77,6 +77,7 @@
                                 (do-close-callbacks)))))
 
       ;; Set up stage (image-view is already in scene)
+      (.setTitle stage window-title)
       (.setScene stage scene)
       (.show stage)
 

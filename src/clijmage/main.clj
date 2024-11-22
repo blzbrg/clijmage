@@ -98,5 +98,6 @@
       (.start (Thread/ofVirtual) (runnable (fn [] (clojure.main/repl)))))))
 
 (defn -main [& args]
-  (let [init-ns (try-load-user-init!)]
-    (javafx.application.Platform/startup (viewer/entry-point #(after-gui init-ns args)))))
+  (let [init-ns (try-load-user-init!)
+        title (clojure.string/join " " (cons "clijmage" args))]
+    (javafx.application.Platform/startup (viewer/entry-point title #(after-gui init-ns args)))))

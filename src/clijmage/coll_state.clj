@@ -83,6 +83,18 @@
   (dosync (alter fb move-transform-impl instruction @visible-p))
   (refresh-viewer!))
 
+(defn move-first! []
+  (dosync (if-let [p @visible-p]
+            (alter fb forward-backward/move-backward-to-first @visible-p)
+            (alter fb forward-backward/move-backward-to-first)))
+  (refresh-viewer!))
+
+(defn move-last! []
+  (dosync (if-let [p @visible-p]
+            (alter fb forward-backward/move-forward-to-last @visible-p)
+            (alter fb forward-backward/move-forward-to-last)))
+  (refresh-viewer!))
+
 (defn current-image []
   (forward-backward/current @fb))
 

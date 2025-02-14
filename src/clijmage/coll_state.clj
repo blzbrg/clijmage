@@ -83,6 +83,18 @@
   (dosync (alter fb move-transform-impl instruction @visible-p))
   (refresh-viewer!))
 
+(defn move-first! []
+  (dosync (if-let [p @visible-p]
+            (alter fb forward-backward/move-backward-to-first @visible-p)
+            (alter fb forward-backward/move-backward-to-first)))
+  (refresh-viewer!))
+
+(defn move-last! []
+  (dosync (if-let [p @visible-p]
+            (alter fb forward-backward/move-forward-to-last @visible-p)
+            (alter fb forward-backward/move-forward-to-last)))
+  (refresh-viewer!))
+
 (defn current-image []
   (forward-backward/current @fb))
 
@@ -93,13 +105,13 @@
                           [path (get @image-states path)]))]
     (apply goto! args)))
 
-(defn change-current! [f]
+(defn ^:private change-current-impl! [f]
   "Replace the image-state of the current image with the result of `f` applied to the state of the
   current image. Returns [path new-image-state]. `f` must be tolerant of getting `nil` (it should
   treat it the same as {})."
-  (dosync (let [path (forward-backward/current @fb)]
-            ;; Update the image state then return the new state
-            [path (get (alter image-states update path f) path)])))
+  (let [path (forward-backward/current @fb)]
+    ;; Update the image state then return the new state
+    [path (get (alter image-states update path f) path)]))
 
 (defn replace-path! [old-path new-path]
   "Replace the path `old-path` in state with `new-path` in sequences and all other state (such as
@@ -122,21 +134,39 @@
 
 ;; === Marks ===
 
+(defn ^:private try-to-move-if-needed [fb visible?]
+  "Return `fb` transformed s.t. the current satisfies `pred`, if possible, otherwise return
+current fb value unchanged."
+  (if (visible? (forward-backward/current fb))
+    ;; No need to move
+    fb
+    ;; First, try to move backwards until visible-p is satisfied
+    (let [moved-back (forward-backward/move-backward-until fb visible?)]
+      (if (not (= moved-back fb))
+        moved-back
+        ;; If moving backwards didn't get us anywhere, try moving forward.
+        ;;
+        ;; If this gets us nowhere, we will just stay where we are.
+        (forward-backward/move-forward-until fb visible?)))))
+
 (defn toggle-mark-current! [mark-identifier]
-  (change-current!
-   (fn [per-image-state]
-     ;; If `per-image-state` is `nil` update will act as if it is `{}`, and if it doesn't contain
-     ;; `::marks`, the inner fn will get nil. This means that marking is highly tolerant of
-     ;; the ::marks being missing, or the entire image path not being in image-states.
-     (update per-image-state
-             ::marks
-             (fn [marks]
-               (if (nil? marks)
-                 ;; if ::marks is absent, create the set containing just the mark (toggle it on)
-                 (sorted-set mark-identifier)
-                 (if (contains? marks mark-identifier)
-                   (disj marks mark-identifier)
-                   (conj marks mark-identifier)))))))
+  (dosync
+   (change-current-impl!
+    (fn [per-image-state]
+      ;; If `per-image-state` is `nil` update will act as if it is `{}`, and if it doesn't contain
+      ;; `::marks`, the inner fn will get nil. This means that marking is highly tolerant of
+      ;; the ::marks being missing, or the entire image path not being in image-states.
+      (update per-image-state
+              ::marks
+              (fn [marks]
+                (if (nil? marks)
+                  ;; if ::marks is absent, create the set containing just the mark (toggle it on)
+                  (sorted-set mark-identifier)
+                  (if (contains? marks mark-identifier)
+                    (disj marks mark-identifier)
+                    (conj marks mark-identifier)))))))
+   (if-let [visible? @visible-p]
+     (alter fb try-to-move-if-needed @visible-p)))
   (refresh-viewer!))
 
 (defn unmark-all! [mark-identifier]
@@ -160,21 +190,6 @@
   (forward-backward/to-seq (dosync (get-marked-impl mark-identifier))))
 
 ;; === Narrow and widen ===
-
-(defn ^:private try-to-move-if-needed [fb visible?]
-  "Return `fb` transformed s.t. the current satisfies `pred`, if possible, otherwise return
-current fb value unchanged."
-  (if (visible? (forward-backward/current fb))
-    ;; No need to move
-    fb
-    ;; First, try to move backwards until visible-p is satisfied
-    (let [moved-back (forward-backward/move-backward-until fb visible?)]
-      (if (not (= moved-back fb))
-        moved-back
-        ;; If moving backwards didn't get us anywhere, try moving forward.
-        ;;
-        ;; If this gets us nowhere, we will just stay where we are.
-        (forward-backward/move-forward-until fb visible?)))))
 
 (defn show-only-marked! [mark-identifier]
   (dosync

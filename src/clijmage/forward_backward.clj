@@ -83,6 +83,48 @@
     (test/testing "If there are no eligible ones, just stay where we are"
       (test/is (= at-2 (move-backward-until at-2 #(< % 0)))))))
 
+(defn move-backward-to-first
+  ([c] (move-backward-to-first c (fn [_] true)))
+  ([c pred] (let [[no yes] (split-with (comp not pred) (::before c))]
+              (if-let [new-current (first yes)]
+                {::before (vec no)
+                 ::current new-current
+                 ::after (into (cons (::current c) (::after c)) (reverse (rest yes)))}
+                c))))
+
+(test/deftest backward-to-first-test
+  (let [at-end {::before [1 2 3 4] ::current 5 ::after '()}
+        at-1 (move-backward-to-first at-end)
+        at-3 (move-backward-to-first at-end #(> % 2))]
+    (test/is (= (to-seq at-end) (to-seq at-1) (to-seq at-3)))
+    (test/is (= (current at-1) 1))
+    (test/is (= (current at-3) 3))
+    (test/testing "none match, just stay where we are"
+      (test/is (= at-3 (move-backward-to-first at-3 #(< % 0)))))
+    (test/testing "we are already at the first, just stay where we are"
+      (test/is (= at-3 (move-backward-to-first at-3 #(> % 2)))))))
+
+(defn move-forward-to-last
+  ([c] (move-forward-to-last c (fn [_] true)))
+  ([c pred] (let [[rno ryes] (split-with (comp not pred) (reverse (::after c)))]
+              (if-let [new-current (first ryes)]
+                {::before (into (conj (::before c) (::current c)) (reverse (rest ryes)))
+                 ::current new-current
+                 ::after (reverse rno)}
+                c))))
+
+(test/deftest move-forward-to-last-test
+  (let [at-1 (from-seq '(1 2 3 4 5))
+        at-end (move-forward-to-last at-1)
+        at-4 (move-forward-to-last at-1 #(< % 5))]
+    (test/is (= (to-seq at-1) (to-seq at-end) (to-seq at-4)))
+    (test/is (= (current at-end) 5))
+    (test/is (= (current at-4) 4))
+    (test/testing "none match, stay where we are"
+      (test/is (= at-1 (move-forward-to-last at-1 #(> % 10)))))
+    (test/testing "already at the last, stay where we are"
+      (test/is (= at-end (move-forward-to-last at-end))))))
+
 (defn map
   [f {before ::before current ::current after ::after}]
   {::before (mapv f before)

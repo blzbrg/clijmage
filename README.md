@@ -9,6 +9,9 @@ Rather than a complete image viewer out of the box, you are intended to customiz
   - Toggle a mark on an image, then write custom scripts to act on all marked image.
   - Narrow the viewer to only show marked images.
 
+![Screenshot of an image being viewed in clijmage](screenshot.jpg)
+The above screenshot shows an image being viewed. There are two marks set on the image, `\m` and `\s`.
+
 # Build and use
 Prerequisites: clojure dev tools (clojure version 1.11.1 at least) including the "clj" commandline tool (normal installs should come with it).
 

@@ -10,6 +10,7 @@ Rather than a complete image viewer out of the box, you are intended to customiz
   - Narrow the viewer to only show marked images.
 
 ![Screenshot of an image being viewed in clijmage](screenshot.jpg)
+
 The above screenshot shows an image being viewed. There are two marks set on the image, `\m` and `\s`.
 
 # Build and use
